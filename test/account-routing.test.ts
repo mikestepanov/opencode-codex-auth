@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 describe("account routing", () => {
-  it("loads the exact worktree route and resolves host-local aliases", () => {
+  it("uses an exact worktree account order instead of the global order", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-routing-"))
     temporaryDirectories.push(directory)
     const routingPath = path.join(directory, "routing.jsonc")
@@ -27,10 +27,11 @@ describe("account routing", () => {
           primary: { email: "primary@example.com" },
           reserve: { identityKey: "acc-reserve|reserve@example.com|plus" }
         },
+        accountOrder: ["primary", "reserve"],
         routes: [
           {
             worktree: "/workspace/nixelo",
-            preferredAccounts: ["primary", "reserve"],
+            accountOrder: ["reserve", "primary"],
             drainAccounts: ["reserve"]
           }
         ]
@@ -47,12 +48,40 @@ describe("account routing", () => {
     ]
 
     expect(resolveAccountRouting(policy, accounts)).toEqual({
-      preferredIdentityKeys: ["acc-primary|primary@example.com|plus", "acc-reserve|reserve@example.com|plus"],
+      preferredIdentityKeys: ["acc-reserve|reserve@example.com|plus", "acc-primary|primary@example.com|plus"],
       avoidNewIdentityKeys: new Set(["acc-reserve|reserve@example.com|plus"])
     })
   })
 
-  it("ignores routes for another worktree and ambiguous email selectors", () => {
+  it("uses the global account order when no worktree route matches", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-routing-"))
+    temporaryDirectories.push(directory)
+    const routingPath = path.join(directory, "routing.jsonc")
+    fs.writeFileSync(
+      routingPath,
+      JSON.stringify({
+        accounts: {
+          primary: { email: "primary@example.com" },
+          reserve: { email: "reserve@example.com" }
+        },
+        accountOrder: ["primary", "reserve"],
+        routes: [{ worktree: "/workspace/other", accountOrder: ["reserve", "primary"] }]
+      })
+    )
+
+    const policy = loadAccountRoutingPolicy({
+      worktree: "/workspace/nixelo",
+      env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
+    })
+    expect(
+      resolveAccountRouting(policy, [
+        { identityKey: "a", email: "primary@example.com" },
+        { identityKey: "b", email: "reserve@example.com" }
+      ])?.preferredIdentityKeys
+    ).toEqual(["a", "b"])
+  })
+
+  it("ignores ambiguous email selectors", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-routing-"))
     temporaryDirectories.push(directory)
     const routingPath = path.join(directory, "routing.jsonc")
@@ -60,19 +89,12 @@ describe("account routing", () => {
       routingPath,
       JSON.stringify({
         accounts: { shared: { email: "shared@example.com" } },
-        routes: [{ worktree: "/workspace/other", preferredAccounts: ["shared"] }]
+        accountOrder: ["shared"]
       })
     )
 
-    expect(
-      loadAccountRoutingPolicy({
-        worktree: "/workspace/nixelo",
-        env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
-      })
-    ).toBeUndefined()
-
     const policy = loadAccountRoutingPolicy({
-      worktree: "/workspace/other",
+      worktree: "/workspace/nixelo",
       env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
     })
     expect(

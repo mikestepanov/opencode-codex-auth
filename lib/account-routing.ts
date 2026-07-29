@@ -12,15 +12,16 @@ export type AccountSelector = {
 }
 
 export type AccountRoutingPolicy = {
-  preferredAccounts: AccountSelector[]
+  accountOrder: AccountSelector[]
   drainAccounts: AccountSelector[]
 }
 
 type AccountRoutingFile = {
   accounts?: Record<string, AccountSelector>
+  accountOrder?: string[]
   routes?: Array<{
     worktree?: string
-    preferredAccounts?: string[]
+    accountOrder?: string[]
     drainAccounts?: string[]
   }>
 }
@@ -148,11 +149,13 @@ export function loadAccountRoutingPolicy(input: {
           : false
       )
     : undefined
-  if (!route) return undefined
+  const accountOrder = resolveAliases(route?.accountOrder ?? parsed.accountOrder, accounts)
+  const drainAccounts = resolveAliases(route?.drainAccounts, accounts)
+  if (accountOrder.length === 0 && drainAccounts.length === 0) return undefined
 
   return {
-    preferredAccounts: resolveAliases(route.preferredAccounts, accounts),
-    drainAccounts: resolveAliases(route.drainAccounts, accounts)
+    accountOrder,
+    drainAccounts
   }
 }
 
@@ -180,7 +183,7 @@ export function resolveAccountRouting(
   }
 
   return {
-    preferredIdentityKeys: resolve(policy.preferredAccounts),
+    preferredIdentityKeys: resolve(policy.accountOrder),
     avoidNewIdentityKeys: new Set(resolve(policy.drainAccounts))
   }
 }

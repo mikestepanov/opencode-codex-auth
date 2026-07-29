@@ -3,6 +3,7 @@
 ## 1.10.0-shadow.1
 
 - Add host-local, exact-worktree account preference and new-session drain routing.
+- Add global account order with exact-worktree order overrides.
 
 All notable changes to this project will be documented in this file.
 
