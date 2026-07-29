@@ -103,21 +103,29 @@ need to enter a shared configuration repository.
     "reserve": { "email": "reserve@example.com" }
   },
   "accountOrder": ["primary", "reserve"],
-  "routes": [
-    {
-      "worktree": "~/Desktop/nixelo",
-      "accountOrder": ["reserve", "primary"],
-      "drainAccounts": []
+  "drainAccounts": [],
+  "devices": {
+    "razer": {
+      "accountOrder": ["primary", "reserve"],
+      "routes": [
+        {
+          "worktree": "~/Desktop/nixelo",
+          "accountOrder": ["reserve", "primary"],
+          "drainAccounts": []
+        }
+      ]
     }
-  ]
+  }
 }
 ```
 
-- Routes match the exact normalized OpenCode worktree path.
+- Device keys match the lowercase short hostname, so `razer` also matches an
+  observed hostname such as `RAZER.example.test`.
+- Device routes match the exact normalized OpenCode worktree path.
 - Top-level `accountOrder` is the default ordered list for every worktree.
-- A matching route's `accountOrder` replaces the global order for that
-  worktree. New assignments consume the first healthy matching account and
-  fail over through the remaining ordered accounts.
+- Each field independently uses device route, then device default, then
+  top-level default. New assignments consume the first healthy matching account
+  and fail over through the remaining ordered accounts.
 - Healthy accounts omitted from the effective order remain final fallbacks.
 - `drainAccounts` excludes matching accounts from new or replacement
   assignments. Existing healthy sticky sessions retain their account.

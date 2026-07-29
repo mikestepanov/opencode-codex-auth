@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 describe("account routing", () => {
-  it("uses an exact worktree account order instead of the global order", () => {
+  it("uses device and exact worktree policy before global defaults", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-routing-"))
     temporaryDirectories.push(directory)
     const routingPath = path.join(directory, "routing.jsonc")
@@ -28,18 +28,25 @@ describe("account routing", () => {
           reserve: { identityKey: "acc-reserve|reserve@example.com|plus" }
         },
         accountOrder: ["primary", "reserve"],
-        routes: [
-          {
-            worktree: "/workspace/nixelo",
-            accountOrder: ["reserve", "primary"],
-            drainAccounts: ["reserve"]
+        drainAccounts: ["primary"],
+        devices: {
+          razer: {
+            accountOrder: ["primary", "reserve"],
+            routes: [
+              {
+                worktree: "/workspace/nixelo",
+                accountOrder: ["reserve", "primary"],
+                drainAccounts: ["reserve"]
+              }
+            ]
           }
-        ]
+        }
       })
     )
 
     const policy = loadAccountRoutingPolicy({
       worktree: "/workspace/nixelo",
+      hostname: "RAZER.example.test",
       env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
     })
     const accounts: AccountRecord[] = [
@@ -65,12 +72,18 @@ describe("account routing", () => {
           reserve: { email: "reserve@example.com" }
         },
         accountOrder: ["primary", "reserve"],
-        routes: [{ worktree: "/workspace/other", accountOrder: ["reserve", "primary"] }]
+        devices: {
+          razer: {
+            accountOrder: ["reserve", "primary"],
+            routes: [{ worktree: "/workspace/other", accountOrder: ["primary", "reserve"] }]
+          }
+        }
       })
     )
 
     const policy = loadAccountRoutingPolicy({
       worktree: "/workspace/nixelo",
+      hostname: "omen",
       env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
     })
     expect(
@@ -95,6 +108,7 @@ describe("account routing", () => {
 
     const policy = loadAccountRoutingPolicy({
       worktree: "/workspace/nixelo",
+      hostname: "razer",
       env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
     })
     expect(
@@ -103,5 +117,42 @@ describe("account routing", () => {
         { identityKey: "b", email: "shared@example.com" }
       ])?.preferredIdentityKeys
     ).toEqual([])
+  })
+
+  it("uses device defaults when no device route matches", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-routing-"))
+    temporaryDirectories.push(directory)
+    const routingPath = path.join(directory, "routing.jsonc")
+    fs.writeFileSync(
+      routingPath,
+      JSON.stringify({
+        accounts: {
+          primary: { email: "primary@example.com" },
+          reserve: { email: "reserve@example.com" }
+        },
+        accountOrder: ["primary", "reserve"],
+        devices: {
+          razer: {
+            accountOrder: ["reserve", "primary"],
+            drainAccounts: ["primary"]
+          }
+        }
+      })
+    )
+
+    const policy = loadAccountRoutingPolicy({
+      worktree: "/workspace/nixelo",
+      hostname: "razer",
+      env: { OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH: routingPath }
+    })
+    expect(
+      resolveAccountRouting(policy, [
+        { identityKey: "a", email: "primary@example.com" },
+        { identityKey: "b", email: "reserve@example.com" }
+      ])
+    ).toEqual({
+      preferredIdentityKeys: ["b", "a"],
+      avoidNewIdentityKeys: new Set(["a"])
+    })
   })
 })

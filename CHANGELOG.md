@@ -4,6 +4,7 @@
 
 - Add host-local, exact-worktree account preference and new-session drain routing.
 - Add global account order with exact-worktree order overrides.
+- Add hostname-specific defaults and worktree routes in one shared policy file.
 
 All notable changes to this project will be documented in this file.
 

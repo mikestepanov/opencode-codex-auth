@@ -19,6 +19,13 @@ export type AccountRoutingPolicy = {
 type AccountRoutingFile = {
   accounts?: Record<string, AccountSelector>
   accountOrder?: string[]
+  drainAccounts?: string[]
+  devices?: Record<string, AccountRoutingScope>
+}
+
+type AccountRoutingScope = {
+  accountOrder?: string[]
+  drainAccounts?: string[]
   routes?: Array<{
     worktree?: string
     accountOrder?: string[]
@@ -97,6 +104,10 @@ function normalizeWorktree(value: string): string {
   return path.resolve(expanded)
 }
 
+function normalizeHostname(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "").split(".")[0] ?? ""
+}
+
 function parseSelector(value: unknown): AccountSelector | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
   const record = value as Record<string, unknown>
@@ -120,6 +131,7 @@ function resolveAliases(value: unknown, accounts: Record<string, AccountSelector
 
 export function loadAccountRoutingPolicy(input: {
   worktree: string
+  hostname?: string
   env?: Record<string, string | undefined>
   warn?: (message: string) => void
 }): AccountRoutingPolicy | undefined {
@@ -141,16 +153,20 @@ export function loadAccountRoutingPolicy(input: {
       return alias.trim() && selector ? [[alias.trim(), selector]] : []
     })
   )
+  const hostname = normalizeHostname(input.hostname ?? os.hostname())
+  const device = Object.entries(parsed.devices ?? {}).find(
+    ([candidate]) => normalizeHostname(candidate) === hostname
+  )?.[1]
   const worktree = normalizeWorktree(input.worktree)
-  const route = Array.isArray(parsed.routes)
-    ? parsed.routes.find((candidate) =>
+  const route = Array.isArray(device?.routes)
+    ? device.routes.find((candidate) =>
         typeof candidate.worktree === "string" && candidate.worktree.trim()
           ? normalizeWorktree(candidate.worktree) === worktree
           : false
       )
     : undefined
-  const accountOrder = resolveAliases(route?.accountOrder ?? parsed.accountOrder, accounts)
-  const drainAccounts = resolveAliases(route?.drainAccounts, accounts)
+  const accountOrder = resolveAliases(route?.accountOrder ?? device?.accountOrder ?? parsed.accountOrder, accounts)
+  const drainAccounts = resolveAliases(route?.drainAccounts ?? device?.drainAccounts ?? parsed.drainAccounts, accounts)
   if (accountOrder.length === 0 && drainAccounts.length === 0) return undefined
 
   return {
