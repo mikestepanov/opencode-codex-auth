@@ -91,7 +91,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.6",
-    "@opencode-ai/plugin": "^1.17.18",
     "@opencode-ai/sdk": "^1.17.18",
     "@types/node": "^20.17.24",
     "@types/proper-lockfile": "^4.1.2",
@@ -100,6 +99,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@opencode-ai/plugin": "1.17.18",
     "proper-lockfile": "^4.1.2"
   }
 }
