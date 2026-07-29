@@ -27,6 +27,7 @@ import type { SessionAffinityRuntimeState } from "./session-affinity-state.js"
 import { scheduleQuotaRefresh } from "./openai-loader-fetch-quota.js"
 import type { ShareableDebugLogger } from "../shareable-debug.js"
 import { parseUltraState, retainUltraState, type UltraResolution } from "./ultra.js"
+import type { AccountRoutingPolicy } from "../account-routing.js"
 import {
   CATALOG_REFRESH_FAILURE_RETRY_MS,
   CATALOG_REFRESH_TTL_MS,
@@ -53,6 +54,7 @@ export type CreateOpenAIFetchHandlerInput = {
   quietMode: boolean
   pidOffsetEnabled: boolean
   configuredRotationStrategy?: RotationStrategy
+  accountRoutingPolicy?: AccountRoutingPolicy
   headerTransformDebug: boolean
   compatInputSanitizerEnabled: boolean
   shareableDebug?: ShareableDebugLogger
@@ -203,6 +205,7 @@ export function createOpenAIFetchHandler(input: CreateOpenAIFetchHandlerInput) {
           persistSessionAffinityState,
           pidOffsetEnabled: input.pidOffsetEnabled,
           configuredRotationStrategy: input.configuredRotationStrategy,
+          accountRoutingPolicy: input.accountRoutingPolicy,
           log: input.log,
           shareableDebug: input.shareableDebug
         })

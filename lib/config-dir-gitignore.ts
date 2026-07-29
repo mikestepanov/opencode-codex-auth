@@ -7,6 +7,7 @@ export const CONFIG_DIR_GITIGNORE_ENTRIES = [
   "codex-accounts.json",
   "codex-accounts.json.tmp.*",
   "codex-accounts.json.*.tmp",
+  "codex-account-routing.jsonc",
   "quarantine/",
   "cache/codex-session-affinity.json",
   "cache/codex-snapshots.json",

@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/iam-brain/opencode-codex-auth.git"
+    "url": "git+https://github.com/mikestepanov/opencode-codex-auth.git"
   },
   "keywords": [
     "opencode",
@@ -30,9 +30,9 @@
     "plugin",
     "auth"
   ],
-  "homepage": "https://github.com/iam-brain/opencode-codex-auth#readme",
+  "homepage": "https://github.com/mikestepanov/opencode-codex-auth#readme",
   "bugs": {
-    "url": "https://github.com/iam-brain/opencode-codex-auth/issues"
+    "url": "https://github.com/mikestepanov/opencode-codex-auth/issues"
   },
   "scripts": {
     "clean:dist": "node scripts/clean-dist.js",

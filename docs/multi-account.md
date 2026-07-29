@@ -89,6 +89,43 @@ Configured in `runtime.rotationStrategy`:
 - Advances account per request among healthy candidates.
 - Highest churn; generally least efficient for token/refresh usage.
 
+## Worktree account routing
+
+Optional host-local routing lives in the resolved config root as
+`codex-account-routing.jsonc`. It is loaded once when OpenCode starts and is
+intentionally separate from `codex-config.jsonc` so account identities do not
+need to enter a shared configuration repository.
+
+```jsonc
+{
+  "accounts": {
+    "primary": { "identityKey": "account-id|user@example.com|plus" },
+    "reserve": { "email": "reserve@example.com" }
+  },
+  "routes": [
+    {
+      "worktree": "~/Desktop/nixelo",
+      "preferredAccounts": ["primary", "reserve"],
+      "drainAccounts": []
+    }
+  ]
+}
+```
+
+- Routes match the exact normalized OpenCode worktree path.
+- `preferredAccounts` is an ordered list. New assignments consume the first
+  healthy matching account and fail over through the remaining accounts.
+- `drainAccounts` excludes matching accounts from new or replacement
+  assignments. Existing healthy sticky sessions retain their account.
+- Selectors use an exact `identityKey`, or an email only when it identifies
+  exactly one account in the active auth domain.
+- Unknown aliases, unmatched selectors, and ambiguous emails are ignored.
+- Account health, enablement, cooldown, refresh lease, and attempted-account
+  filtering still take precedence.
+
+Set `OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH` to an absolute path to use a
+different host-local file.
+
 ## Health and failover
 
 Accounts are eligible only when:

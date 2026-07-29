@@ -4,6 +4,7 @@ import { selectAccount } from "../rotation.js"
 import { getOpenAIOAuthDomain, loadAuthStorage } from "../storage.js"
 import type { OpenAIAuthMode, RotationStrategy } from "../types.js"
 import { resolveCatalogScopeKey } from "./openai-loader-fetch-state.js"
+import { resolveAccountRouting, type AccountRoutingPolicy } from "../account-routing.js"
 
 type CatalogHeaders = {
   originator: string
@@ -16,7 +17,8 @@ type CatalogHeaders = {
 export async function selectCatalogAuthCandidate(
   authMode: OpenAIAuthMode,
   pidOffsetEnabled: boolean,
-  rotationStrategy?: RotationStrategy
+  rotationStrategy?: RotationStrategy,
+  accountRoutingPolicy?: AccountRoutingPolicy
 ): Promise<{ accessToken?: string; accountId?: string }> {
   try {
     const auth = await loadAuthStorage()
@@ -31,7 +33,8 @@ export async function selectCatalogAuthCandidate(
       strategy: rotationStrategy ?? domain.strategy,
       activeIdentityKey: domain.activeIdentityKey,
       now,
-      stickyPidOffset: pidOffsetEnabled
+      stickyPidOffset: pidOffsetEnabled,
+      ...resolveAccountRouting(accountRoutingPolicy, domain.accounts)
     })
 
     if (!selected?.access) {
@@ -59,6 +62,7 @@ export async function initializeCatalogSync(input: {
   authMode: OpenAIAuthMode
   pidOffsetEnabled: boolean
   rotationStrategy?: RotationStrategy
+  accountRoutingPolicy?: AccountRoutingPolicy
   resolveCatalogHeaders: () => CatalogHeaders
   log?: Logger
   setCatalogModels: (scopeKey: string | undefined, models: CodexModelInfo[] | undefined) => void
@@ -73,7 +77,12 @@ export async function initializeCatalogSync(input: {
     selectionTrace?: { attemptKey?: string }
   }) => Promise<CodexModelInfo[] | undefined>
 > {
-  const catalogAuth = await selectCatalogAuthCandidate(input.authMode, input.pidOffsetEnabled, input.rotationStrategy)
+  const catalogAuth = await selectCatalogAuthCandidate(
+    input.authMode,
+    input.pidOffsetEnabled,
+    input.rotationStrategy,
+    input.accountRoutingPolicy
+  )
 
   const initialCatalog = await getCodexModelCatalog({
     accessToken: catalogAuth.accessToken,

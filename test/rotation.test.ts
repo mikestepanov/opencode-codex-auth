@@ -423,4 +423,79 @@ describe("rotation", () => {
       })?.identityKey
     ).toBe("b")
   })
+
+  it("assigns the first preferred account to each new sticky session", () => {
+    const accounts: AccountRecord[] = [
+      { identityKey: "a", enabled: true },
+      { identityKey: "b", enabled: true }
+    ]
+    const stickySessionState = createStickySessionState()
+
+    for (const sessionKey of ["ses-1", "ses-2"]) {
+      expect(
+        selectAccount({
+          accounts,
+          strategy: "sticky",
+          now: 1000,
+          stickyPidOffset: true,
+          stickySessionKey: sessionKey,
+          stickySessionState,
+          preferredIdentityKeys: ["b", "a"]
+        })?.identityKey
+      ).toBe("b")
+    }
+  })
+
+  it("falls through preferred accounts after an attempted candidate is removed", () => {
+    const accounts: AccountRecord[] = [
+      { identityKey: "a", enabled: true },
+      { identityKey: "b", enabled: true }
+    ]
+
+    expect(
+      selectAccount({
+        accounts: [accounts[1]],
+        strategy: "sticky",
+        now: 1000,
+        preferredIdentityKeys: ["a", "b"]
+      })?.identityKey
+    ).toBe("b")
+  })
+
+  it("keeps an existing sticky assignment when the account avoids new sessions", () => {
+    const accounts: AccountRecord[] = [
+      { identityKey: "a", enabled: true },
+      { identityKey: "b", enabled: true }
+    ]
+    const stickySessionState = createStickySessionState()
+    stickySessionState.bySessionKey.set("ses-existing", "a")
+
+    expect(
+      selectAccount({
+        accounts,
+        strategy: "sticky",
+        now: 1000,
+        stickySessionKey: "ses-existing",
+        stickySessionState,
+        avoidNewIdentityKeys: new Set(["a"])
+      })?.identityKey
+    ).toBe("a")
+  })
+
+  it("does not assign an avoided account to a new session", () => {
+    const accounts: AccountRecord[] = [
+      { identityKey: "a", enabled: true },
+      { identityKey: "b", enabled: true }
+    ]
+
+    expect(
+      selectAccount({
+        accounts,
+        strategy: "sticky",
+        activeIdentityKey: "a",
+        now: 1000,
+        avoidNewIdentityKeys: new Set(["a"])
+      })?.identityKey
+    ).toBe("b")
+  })
 })

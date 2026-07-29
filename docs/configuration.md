@@ -20,6 +20,11 @@ Known exceptions:
 
 - OpenCode provider auth marker/legacy transfer source is OpenCode-owned at `${XDG_DATA_HOME:-~/.local/share}/opencode/auth.json`.
 
+Optional worktree account routing is read from
+`<config-root>/codex-account-routing.jsonc`. This host-local file maps aliases
+to account identity selectors and exact worktree paths to ordered preference or
+new-session avoidance lists. See [Multi-account behavior](multi-account.md#worktree-account-routing).
+
 ## JSON schemas
 
 Use these schemas for validation/autocomplete:
@@ -312,6 +317,7 @@ Advanced path:
 ### Config/mode overrides
 
 - `OPENCODE_OPENAI_MULTI_CONFIG_PATH`: explicit config file path (absolute path recommended).
+- `OPENCODE_OPENAI_MULTI_ACCOUNT_ROUTING_PATH`: absolute path to the optional host-local worktree account routing file.
 - `OPENCODE_OPENAI_MULTI_REASONING_SUMMARIES`: global reasoning-summary env override.
 - `OPENCODE_OPENAI_MULTI_THINKING_SUMMARIES`: deprecated alias for `OPENCODE_OPENAI_MULTI_REASONING_SUMMARIES`.
 - `OPENCODE_OPENAI_MULTI_MODE`: `native|codex`.

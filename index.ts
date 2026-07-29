@@ -47,6 +47,7 @@ import { toolOutputForStatus } from "./lib/codex-status-tool.js"
 import { requireOpenAIMultiOauthAuth, saveAuthStorage } from "./lib/storage.js"
 import { removeLegacyOrchestratorArtifacts } from "./lib/legacy-orchestrator-cleanup.js"
 import { composePluginDispose } from "./lib/plugin-lifecycle.js"
+import { loadAccountRoutingPolicy } from "./lib/account-routing.js"
 
 let scheduler: { stop: () => void } | undefined
 
@@ -84,6 +85,11 @@ export const OpenAIMultiAuthPlugin: Plugin = async (input) => {
   })
   const runtimeMode = getMode(cfg)
   const log = createLogger({ debug: getDebugEnabled(cfg) })
+  const accountRoutingPolicy = loadAccountRoutingPolicy({
+    worktree: input.worktree,
+    env: process.env,
+    warn: (message) => console.warn(message)
+  })
 
   if (getProactiveRefreshEnabled(cfg)) {
     const bufferMs = getProactiveRefreshBufferMs(cfg)
@@ -157,7 +163,8 @@ export const OpenAIMultiAuthPlugin: Plugin = async (input) => {
       ultraReasoningEffort: getUltraReasoningEffort(cfg),
       behaviorSettings: getBehaviorSettings(cfg),
       customModels: getCustomModels(cfg),
-      modelAliases: getModelAliasSettings(cfg)
+      modelAliases: getModelAliasSettings(cfg),
+      accountRoutingPolicy
     })
   } catch (error) {
     instanceScheduler?.stop()

@@ -67,6 +67,7 @@ import { createOpenAIFetchHandler } from "./codex-native/openai-loader-fetch.js"
 import { createShareableDebugLogger } from "./shareable-debug.js"
 import { isUltraEligible, type UltraResolution } from "./codex-native/ultra.js"
 import { createAgentExecutionResolver, deletedSessionIDFromEvent } from "./codex-native/agent-execution.js"
+import type { AccountRoutingPolicy } from "./account-routing.js"
 export { browserOpenInvocationFor } from "./codex-native/browser.js"
 export { upsertAccount } from "./codex-native/accounts.js"
 export { extractAccountId, extractAccountIdFromClaims, refreshAccessToken } from "./codex-native/oauth-utils.js"
@@ -177,6 +178,7 @@ export type CodexAuthPluginOptions = {
   headerTransformDebug?: boolean
   ultraEnabled?: boolean
   ultraReasoningEffort?: UltraReasoningEffort
+  accountRoutingPolicy?: AccountRoutingPolicy
 }
 
 type OpenCodeConfig = Parameters<NonNullable<Hooks["config"]>>[0]
@@ -557,7 +559,8 @@ export async function CodexAuthPlugin(input: PluginInput, opts: CodexAuthPluginO
         const catalogAuth = await selectCatalogAuthCandidate(
           authMode,
           opts.pidOffsetEnabled === true,
-          opts.rotationStrategy
+          opts.rotationStrategy,
+          opts.accountRoutingPolicy
         )
         const catalogModels = await getCodexModelCatalog({
           accessToken: catalogAuth.accessToken,
@@ -616,6 +619,7 @@ export async function CodexAuthPlugin(input: PluginInput, opts: CodexAuthPluginO
           authMode,
           pidOffsetEnabled: opts.pidOffsetEnabled === true,
           rotationStrategy: opts.rotationStrategy,
+          accountRoutingPolicy: opts.accountRoutingPolicy,
           resolveCatalogHeaders,
           log: opts.log,
           setCatalogModels,
@@ -635,6 +639,7 @@ export async function CodexAuthPlugin(input: PluginInput, opts: CodexAuthPluginO
           quietMode: opts.quietMode === true,
           pidOffsetEnabled: opts.pidOffsetEnabled === true,
           configuredRotationStrategy: opts.rotationStrategy,
+          accountRoutingPolicy: opts.accountRoutingPolicy,
           headerTransformDebug: opts.headerTransformDebug === true,
           compatInputSanitizerEnabled: opts.compatInputSanitizer === true,
           shareableDebug,

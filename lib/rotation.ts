@@ -25,6 +25,8 @@ export type SelectAccountInput = {
   pid?: number
   stickySessionKey?: string | null
   stickySessionState?: StickySessionState
+  preferredIdentityKeys?: string[]
+  avoidNewIdentityKeys?: Set<string>
   onDebug?: (event: RotationDebugEvent) => void
 }
 
@@ -34,15 +36,18 @@ export type RotationDebugEvent = {
     | "none-eligible"
     | "sticky-session-reuse"
     | "sticky-session-assign"
+    | "sticky-preferred"
     | "sticky-fallback-first"
     | "sticky-active"
     | "sticky-pid-offset"
     | "hybrid-session-reuse"
     | "hybrid-session-assign"
+    | "hybrid-preferred"
     | "hybrid-active"
     | "hybrid-lru"
     | "round-robin-next"
     | "round-robin-pid-offset"
+    | "round-robin-preferred"
   selectedIdentityKey?: string
   activeIdentityKey?: string
   sessionKey?: string
@@ -255,75 +260,117 @@ export function selectAccount(input: SelectAccountInput): AccountRecord | undefi
     return undefined
   }
 
+  const assigned =
+    strategy === "sticky" || strategy === "hybrid"
+      ? resolveAssignedSessionAccount(input, eligible, strategy)
+      : undefined
+  if (assigned) return assigned
+
+  const avoidNewIdentityKeys = input.avoidNewIdentityKeys ?? new Set<string>()
+  const newEligible = eligible.filter(
+    (account) => !account.identityKey || !avoidNewIdentityKeys.has(account.identityKey)
+  )
+  if (newEligible.length === 0) {
+    emitRotationDebug(input, {
+      strategy,
+      decision: "none-eligible",
+      activeIdentityKey,
+      eligibleCount: 0,
+      extra: { avoidedForNewAssignment: eligible.length }
+    })
+    return undefined
+  }
+
+  const preferred = input.preferredIdentityKeys
+    ?.map((identityKey) => newEligible.find((account) => account.identityKey === identityKey))
+    .find((account): account is AccountRecord => account !== undefined)
+  if (preferred) {
+    if (strategy === "sticky" || strategy === "hybrid") {
+      assignSessionAccount(input, preferred, strategy, newEligible.length)
+    }
+    emitRotationDebug(input, {
+      strategy,
+      decision:
+        strategy === "sticky"
+          ? "sticky-preferred"
+          : strategy === "hybrid"
+            ? "hybrid-preferred"
+            : "round-robin-preferred",
+      selectedIdentityKey: preferred.identityKey,
+      activeIdentityKey,
+      eligibleCount: newEligible.length
+    })
+    return preferred
+  }
+
   const activeIndex =
-    activeIdentityKey == null ? -1 : eligible.findIndex((acc) => acc.identityKey === activeIdentityKey)
+    activeIdentityKey == null ? -1 : newEligible.findIndex((acc) => acc.identityKey === activeIdentityKey)
 
   if (strategy === "sticky") {
     const stickySessionAccount =
-      resolveAssignedSessionAccount(input, eligible, "sticky") ??
-      (input.stickyPidOffset === true && hasStickySessionKey ? resolveStickySessionAccount(input, eligible) : undefined)
+      input.stickyPidOffset === true && hasStickySessionKey
+        ? resolveStickySessionAccount(input, newEligible)
+        : undefined
     if (stickySessionAccount) return stickySessionAccount
     if (activeIndex >= 0) {
-      const selected = eligible[activeIndex]
-      assignSessionAccount(input, selected, "sticky", eligible.length)
+      const selected = newEligible[activeIndex]
+      assignSessionAccount(input, selected, "sticky", newEligible.length)
       emitRotationDebug(input, {
         strategy,
         decision: "sticky-active",
         selectedIdentityKey: selected?.identityKey,
         activeIdentityKey,
-        eligibleCount: eligible.length
+        eligibleCount: newEligible.length
       })
       return selected
     }
     if (input.stickyPidOffset !== true) {
-      const selected = eligible[0]
-      assignSessionAccount(input, selected, "sticky", eligible.length)
+      const selected = newEligible[0]
+      assignSessionAccount(input, selected, "sticky", newEligible.length)
       emitRotationDebug(input, {
         strategy,
         decision: "sticky-fallback-first",
         selectedIdentityKey: selected?.identityKey,
         activeIdentityKey,
-        eligibleCount: eligible.length
+        eligibleCount: newEligible.length
       })
       return selected
     }
-    const offsetIndex = resolveOffsetIndex(input, eligible.length)
-    const selected = eligible[offsetIndex]
-    assignSessionAccount(input, selected, "sticky", eligible.length, { offsetIndex })
+    const offsetIndex = resolveOffsetIndex(input, newEligible.length)
+    const selected = newEligible[offsetIndex]
+    assignSessionAccount(input, selected, "sticky", newEligible.length, { offsetIndex })
     emitRotationDebug(input, {
       strategy,
       decision: "sticky-pid-offset",
       selectedIdentityKey: selected?.identityKey,
       activeIdentityKey,
-      eligibleCount: eligible.length,
+      eligibleCount: newEligible.length,
       extra: { offsetIndex }
     })
     return selected
   }
 
   if (strategy === "hybrid") {
-    const existingSession = resolveAssignedSessionAccount(input, eligible, "hybrid")
-    if (existingSession) return existingSession
     if (input.stickyPidOffset === true && hasStickySessionKey) {
-      const sessionAccount = resolveHybridSessionAccount(input, eligible)
+      const sessionAccount = resolveHybridSessionAccount(input, newEligible)
       if (sessionAccount) return sessionAccount
     }
     if (activeIndex >= 0) {
-      const selected = eligible[activeIndex]
-      assignSessionAccount(input, selected, "hybrid", eligible.length)
+      const selected = newEligible[activeIndex]
+      assignSessionAccount(input, selected, "hybrid", newEligible.length)
       emitRotationDebug(input, {
         strategy,
         decision: "hybrid-active",
         selectedIdentityKey: selected?.identityKey,
         activeIdentityKey,
-        eligibleCount: eligible.length
+        eligibleCount: newEligible.length
       })
       return selected
     }
-    let selected = eligible[0]
+    let selected = newEligible[0]
     let selectedLastUsed = selected.lastUsed ?? 0
-    for (let i = 1; i < eligible.length; i++) {
-      const candidate = eligible[i]
+    for (let i = 1; i < newEligible.length; i++) {
+      const candidate = newEligible[i]
       const candidateLastUsed = candidate.lastUsed ?? 0
       if (
         candidateLastUsed < selectedLastUsed ||
@@ -333,38 +380,38 @@ export function selectAccount(input: SelectAccountInput): AccountRecord | undefi
         selectedLastUsed = candidateLastUsed
       }
     }
-    assignSessionAccount(input, selected, "hybrid", eligible.length, { lastUsed: selected.lastUsed ?? 0 })
+    assignSessionAccount(input, selected, "hybrid", newEligible.length, { lastUsed: selected.lastUsed ?? 0 })
     emitRotationDebug(input, {
       strategy,
       decision: "hybrid-lru",
       selectedIdentityKey: selected.identityKey,
       activeIdentityKey,
-      eligibleCount: eligible.length,
+      eligibleCount: newEligible.length,
       extra: { lastUsed: selected.lastUsed ?? 0 }
     })
     return selected
   }
 
   if (activeIndex < 0) {
-    const offsetIndex = resolveOffsetIndex(input, eligible.length)
-    const selected = eligible[offsetIndex]
+    const offsetIndex = resolveOffsetIndex(input, newEligible.length)
+    const selected = newEligible[offsetIndex]
     emitRotationDebug(input, {
       strategy,
       decision: "round-robin-pid-offset",
       selectedIdentityKey: selected?.identityKey,
       activeIdentityKey,
-      eligibleCount: eligible.length,
+      eligibleCount: newEligible.length,
       extra: { offsetIndex }
     })
     return selected
   }
-  const selected = eligible[(activeIndex + 1) % eligible.length]
+  const selected = newEligible[(activeIndex + 1) % newEligible.length]
   emitRotationDebug(input, {
     strategy,
     decision: "round-robin-next",
     selectedIdentityKey: selected?.identityKey,
     activeIdentityKey,
-    eligibleCount: eligible.length,
+    eligibleCount: newEligible.length,
     extra: { activeIndex }
   })
   return selected

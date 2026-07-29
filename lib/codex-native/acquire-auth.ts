@@ -9,6 +9,7 @@ import { parseJwtClaims } from "../claims.js"
 import { formatAccountLabel } from "./accounts.js"
 import { extractAccountId, refreshAccessToken, type OAuthTokenRefreshError } from "./oauth-utils.js"
 import type { ShareableDebugLogger } from "../shareable-debug.js"
+import { resolveAccountRouting, type AccountRoutingPolicy } from "../account-routing.js"
 
 const AUTH_REFRESH_FAILURE_COOLDOWN_MS = 30_000
 const AUTH_REFRESH_LEASE_MS = 30_000
@@ -73,6 +74,7 @@ export type AcquireOpenAIAuthInput = {
   persistSessionAffinityState: () => void | Promise<void>
   pidOffsetEnabled: boolean
   configuredRotationStrategy?: RotationStrategy
+  accountRoutingPolicy?: AccountRoutingPolicy
   log?: Logger
   shareableDebug?: ShareableDebugLogger
 }
@@ -217,6 +219,10 @@ export async function acquireOpenAIAuth(input: AcquireOpenAIAuthInput): Promise<
           stickyPidOffset: input.pidOffsetEnabled,
           stickySessionKey: input.isSubagentRequest ? undefined : input.context?.sessionKey,
           stickySessionState: sessionState,
+          ...resolveAccountRouting(
+            input.accountRoutingPolicy,
+            selectableEntries.map((entry) => entry.account)
+          ),
           onDebug: (event) => {
             lastSelectionTrace = {
               strategy: event.strategy,
