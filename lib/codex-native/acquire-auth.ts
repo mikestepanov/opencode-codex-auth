@@ -1,15 +1,17 @@
+import { type AccountRoutingPolicy, resolveAccountRouting } from "../account-routing.js"
+import { parseJwtClaims } from "../claims.js"
+import { loadSnapshots, type SnapshotMap } from "../codex-status-storage.js"
+import { formatWaitTime, isPluginFatalError, PluginFatalError } from "../fatal-errors.js"
 import type { AccountSelectionTrace, AuthData, FetchOrchestratorAuthContext } from "../fetch-orchestrator.js"
-import { PluginFatalError, formatWaitTime, isPluginFatalError } from "../fatal-errors.js"
 import { ensureIdentityKey, normalizeEmail, normalizePlan } from "../identity.js"
 import type { Logger } from "../logger.js"
-import { createStickySessionState, selectAccount, type StickySessionState } from "../rotation.js"
+import { defaultSnapshotsPath } from "../paths.js"
+import { createStickySessionState, type StickySessionState, selectAccount } from "../rotation.js"
+import type { ShareableDebugLogger } from "../shareable-debug.js"
 import { ensureOpenAIOAuthDomain, loadAuthStorage, saveAuthStorage } from "../storage.js"
 import type { AccountRecord, OpenAIAuthMode, RotationStrategy } from "../types.js"
-import { parseJwtClaims } from "../claims.js"
 import { formatAccountLabel } from "./accounts.js"
-import { extractAccountId, refreshAccessToken, type OAuthTokenRefreshError } from "./oauth-utils.js"
-import type { ShareableDebugLogger } from "../shareable-debug.js"
-import { resolveAccountRouting, type AccountRoutingPolicy } from "../account-routing.js"
+import { extractAccountId, type OAuthTokenRefreshError, refreshAccessToken } from "./oauth-utils.js"
 
 const AUTH_REFRESH_FAILURE_COOLDOWN_MS = 30_000
 const AUTH_REFRESH_LEASE_MS = 30_000
@@ -75,6 +77,7 @@ export type AcquireOpenAIAuthInput = {
   pidOffsetEnabled: boolean
   configuredRotationStrategy?: RotationStrategy
   accountRoutingPolicy?: AccountRoutingPolicy
+  quotaSnapshots?: SnapshotMap
   log?: Logger
   shareableDebug?: ShareableDebugLogger
 }
@@ -103,6 +106,18 @@ function buildAttemptKeyForCandidate(account: AccountRecord, index: number): str
   return `idx:${index}`
 }
 
+export function resolveExhaustedQuotaCooldown(input: {
+  snapshot: SnapshotMap[string] | undefined
+  now: number
+}): number | undefined {
+  const resetCandidates = input.snapshot?.limits
+    .filter((limit) => limit.leftPct <= 0)
+    .map((limit) => limit.resetsAt)
+    .filter((resetAt): resetAt is number => typeof resetAt === "number" && resetAt > input.now)
+  if (!resetCandidates || resetCandidates.length === 0) return undefined
+  return Math.max(...resetCandidates)
+}
+
 export async function acquireOpenAIAuth(input: AcquireOpenAIAuthInput): Promise<AuthData> {
   let access: string | undefined
   let accountId: string | undefined
@@ -118,6 +133,7 @@ export async function acquireOpenAIAuth(input: AcquireOpenAIAuthInput): Promise<
   let totalAccounts = 0
   let rotationLogged = false
   let lastSelectionTrace: AccountSelectionTrace | undefined
+  const quotaSnapshots = input.quotaSnapshots ?? (await loadSnapshots(defaultSnapshotsPath()))
   const emitAuthFailure = async (details: { outcome: string; status: number; waitMs?: number }): Promise<void> => {
     await input.shareableDebug?.emitAuthFailure({
       authMode: input.authMode,
@@ -155,6 +171,34 @@ export async function acquireOpenAIAuth(input: AcquireOpenAIAuthInput): Promise<
           status: 401,
           type: "no_accounts_configured",
           param: "accounts"
+        })
+      }
+
+      const quotaCooldowns = domain.accounts.flatMap((account) => {
+        const identityKey = account.identityKey?.trim()
+        if (!identityKey) return []
+        const cooldownUntil = resolveExhaustedQuotaCooldown({
+          snapshot: quotaSnapshots[identityKey],
+          now
+        })
+        if (!cooldownUntil || (account.cooldownUntil ?? 0) >= cooldownUntil) return []
+        account.cooldownUntil = cooldownUntil
+        return [{ identityKey, cooldownUntil }]
+      })
+      if (quotaCooldowns.length > 0) {
+        await saveAuthStorage(undefined, (authFile) => {
+          const currentDomain = ensureOpenAIOAuthDomain(authFile, input.authMode)
+          for (const quotaCooldown of quotaCooldowns) {
+            const account = currentDomain.accounts.find(
+              (candidate) => candidate.identityKey === quotaCooldown.identityKey
+            )
+            if (account && account.enabled !== false && (account.cooldownUntil ?? 0) < quotaCooldown.cooldownUntil) {
+              account.cooldownUntil = quotaCooldown.cooldownUntil
+            }
+          }
+        })
+        input.log?.debug("applied exhausted quota snapshots", {
+          accountCount: quotaCooldowns.length
         })
       }
 

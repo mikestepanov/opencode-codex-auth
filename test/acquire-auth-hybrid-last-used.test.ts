@@ -1,6 +1,43 @@
 import { describe, expect, it, vi } from "vitest"
+import { resolveExhaustedQuotaCooldown } from "../lib/codex-native/acquire-auth"
 
 describe("acquire auth hybrid lastUsed persistence", () => {
+  it("uses the latest future reset from exhausted quota windows", () => {
+    const now = 1_000
+
+    expect(
+      resolveExhaustedQuotaCooldown({
+        now,
+        snapshot: {
+          updatedAt: 100,
+          modelFamily: "codex",
+          limits: [
+            { name: "requests", leftPct: 0, resetsAt: 2_000 },
+            { name: "tokens", leftPct: 0, resetsAt: 3_000 }
+          ]
+        }
+      })
+    ).toBe(3_000)
+  })
+
+  it("ignores available quota and exhausted windows whose reset passed", () => {
+    const now = 2_000
+
+    expect(
+      resolveExhaustedQuotaCooldown({
+        now,
+        snapshot: {
+          updatedAt: 100,
+          modelFamily: "codex",
+          limits: [
+            { name: "requests", leftPct: 0, resetsAt: now },
+            { name: "tokens", leftPct: 10, resetsAt: 3_000 }
+          ]
+        }
+      })
+    ).toBeUndefined()
+  })
+
   it("updates lastUsed for hybrid strategy when serving a still-valid access token", async () => {
     vi.resetModules()
     vi.spyOn(Date, "now").mockReturnValue(100_000)

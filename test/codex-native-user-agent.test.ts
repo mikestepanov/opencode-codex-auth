@@ -144,11 +144,27 @@ describe("codex-native user-agent parity", () => {
   it("falls back unknown architecture and platform labels when runtime values are empty", async () => {
     vi.resetModules()
     const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")
-    const originalTerm = process.env.TERM
+    const terminalEnv = {
+      TERM_PROGRAM: process.env.TERM_PROGRAM,
+      TERM_PROGRAM_VERSION: process.env.TERM_PROGRAM_VERSION,
+      WEZTERM_VERSION: process.env.WEZTERM_VERSION,
+      ITERM_SESSION_ID: process.env.ITERM_SESSION_ID,
+      ITERM_PROFILE: process.env.ITERM_PROFILE,
+      ITERM_PROFILE_NAME: process.env.ITERM_PROFILE_NAME,
+      TERM_SESSION_ID: process.env.TERM_SESSION_ID,
+      KITTY_WINDOW_ID: process.env.KITTY_WINDOW_ID,
+      ALACRITTY_SOCKET: process.env.ALACRITTY_SOCKET,
+      KONSOLE_VERSION: process.env.KONSOLE_VERSION,
+      GNOME_TERMINAL_SCREEN: process.env.GNOME_TERMINAL_SCREEN,
+      VTE_VERSION: process.env.VTE_VERSION,
+      WT_SESSION: process.env.WT_SESSION,
+      TERM: process.env.TERM
+    }
     const archSpy = vi.spyOn(os, "arch").mockReturnValue("")
     const releaseSpy = vi.spyOn(os, "release").mockReturnValue("5.11")
     try {
       Object.defineProperty(process, "platform", { configurable: true, value: "sunos" })
+      for (const key of Object.keys(terminalEnv)) delete process.env[key]
       process.env.TERM = "vt100"
       const identity = await import("../lib/codex-native/client-identity")
       const ua = identity.buildCodexUserAgent("codex_exec")
@@ -160,8 +176,10 @@ describe("codex-native user-agent parity", () => {
       if (originalPlatform) {
         Object.defineProperty(process, "platform", originalPlatform)
       }
-      if (originalTerm === undefined) delete process.env.TERM
-      else process.env.TERM = originalTerm
+      for (const [key, value] of Object.entries(terminalEnv)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
     }
   })
 })

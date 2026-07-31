@@ -563,11 +563,22 @@ describe("acquire auth lock behavior", () => {
   it("rotates past missing-identity candidate to a later valid account", async () => {
     vi.resetModules()
 
+    const resetAt = Date.now() + 60 * 60 * 1000
     let authState: Record<string, unknown> = {
       openai: {
         type: "oauth",
         native: {
           accounts: [
+            {
+              identityKey: "acc_1|exhausted@example.com|plus",
+              accountId: "acc_1",
+              email: "exhausted@example.com",
+              plan: "plus",
+              enabled: true,
+              access: "at_1",
+              refresh: "rt_1",
+              expires: Date.now() + 60_000
+            },
             {
               email: "missing@example.com",
               plan: "plus",
@@ -638,11 +649,20 @@ describe("acquire auth lock behavior", () => {
       hybridSessionState: defaults.hybridSessionState,
       seenSessionKeys: new Map<string, number>(),
       persistSessionAffinityState: () => {},
-      pidOffsetEnabled: false
+      pidOffsetEnabled: false,
+      quotaSnapshots: {
+        "acc_1|exhausted@example.com|plus": {
+          updatedAt: Date.now() - 5 * 60 * 1000,
+          modelFamily: "codex",
+          limits: [{ name: "requests", leftPct: 0, resetsAt: resetAt }]
+        }
+      }
     })
 
+    const accounts = (authState.openai as { native: { accounts: Array<Record<string, unknown>> } }).native.accounts
     expect(auth.access).toBe("at_2")
     expect(auth.identityKey).toBe("acc_2|ok@example.com|plus")
+    expect(accounts[0]?.cooldownUntil).toBe(resetAt)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
