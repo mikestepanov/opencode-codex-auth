@@ -154,6 +154,26 @@ export async function fetchQuotaSnapshotFromBackend(input: {
   fetchImpl?: typeof fetch
   timeoutMs?: number
 }): Promise<CodexRateLimitSnapshot | null> {
+  return (await fetchQuotaSnapshotResultFromBackend(input)).snapshot
+}
+
+export type QuotaSnapshotFetchResult = {
+  snapshot: CodexRateLimitSnapshot | null
+  response?: Response
+  error?: string
+}
+
+export async function fetchQuotaSnapshotResultFromBackend(input: {
+  accessToken: string
+  accountId?: string
+  baseUrl?: string
+  now?: number
+  modelFamily?: string
+  userAgent?: string
+  log?: Logger
+  fetchImpl?: typeof fetch
+  timeoutMs?: number
+}): Promise<QuotaSnapshotFetchResult> {
   const endpoint = resolveQuotaUsageUrl(input.baseUrl)
   const fetchImpl = input.fetchImpl ?? fetch
   const timeoutMs = Math.max(1, Math.floor(input.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS))
@@ -176,21 +196,24 @@ export async function fetchQuotaSnapshotFromBackend(input: {
         endpoint,
         status: response.status
       })
-      return null
+      return { snapshot: null, response }
     }
 
     const payload = await response.json()
-    return snapshotFromUsagePayload({
-      payload,
-      now: input.now ?? Date.now(),
-      modelFamily: input.modelFamily ?? "codex"
-    })
+    return {
+      snapshot: snapshotFromUsagePayload({
+        payload,
+        now: input.now ?? Date.now(),
+        modelFamily: input.modelFamily ?? "codex"
+      }),
+      response
+    }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     input.log?.debug("quota fetch failed", {
       endpoint,
-      error: error instanceof Error ? error.message : String(error)
+      error: message
     })
+    return { snapshot: null, error: message }
   }
-
-  return null
 }
