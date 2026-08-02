@@ -54,6 +54,7 @@ export type CodexLimit = {
   name: string
   leftPct: number
   resetsAt?: number
+  windowSeconds?: number
   extra?: string
 }
 

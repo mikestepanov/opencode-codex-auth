@@ -34,10 +34,12 @@ function parseWindowLimit(name: string, windowData: unknown): CodexLimit | null 
   const leftPct = normalizePct(100 - usedPct)
   if (leftPct === undefined) return null
   const resetsAt = toEpochMs(asNumber(windowData.reset_at ?? windowData.resets_at))
+  const windowSeconds = asNumber(windowData.limit_window_seconds)
   return {
     name,
     leftPct,
-    ...(resetsAt ? { resetsAt } : null)
+    ...(resetsAt ? { resetsAt } : null),
+    ...(windowSeconds && windowSeconds > 0 ? { windowSeconds } : null)
   }
 }
 

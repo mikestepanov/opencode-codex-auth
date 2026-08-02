@@ -47,8 +47,8 @@ describe("codex quota fetch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://chatgpt.com/backend-api/wham/usage")
     expect(snapshot?.limits).toEqual([
-      { name: "requests", leftPct: 75, resetsAt: 1_710_000_000_000 },
-      { name: "tokens", leftPct: 30, resetsAt: 1_711_000_000_000 }
+      { name: "requests", leftPct: 75, resetsAt: 1_710_000_000_000, windowSeconds: 18_000 },
+      { name: "tokens", leftPct: 30, resetsAt: 1_711_000_000_000, windowSeconds: 604_800 }
     ])
     expect(snapshot?.credits).toEqual({
       hasCredits: true,
@@ -86,7 +86,9 @@ describe("codex quota fetch", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.openai.com/api/codex/usage")
-    expect(snapshot?.limits).toEqual([{ name: "requests", leftPct: 90, resetsAt: 1_712_000_000_000 }])
+    expect(snapshot?.limits).toEqual([
+      { name: "requests", leftPct: 90, resetsAt: 1_712_000_000_000, windowSeconds: 18_000 }
+    ])
   })
 
   it("routes quota requests with ChatGPT-Account-Id header for account isolation parity", async () => {
