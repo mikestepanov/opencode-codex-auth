@@ -26,7 +26,6 @@ describe("openai loader shareable debug wiring", () => {
         identityKey: "acc_2|user2@example.com|pro",
         accountId: "acc_2",
         selectionTrace: {
-          strategy: "sticky",
           selectedIdentityKey: "acc_2|user2@example.com|pro",
           activeIdentityKey: "acc_2|user2@example.com|pro"
         }

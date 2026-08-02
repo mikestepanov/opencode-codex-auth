@@ -125,7 +125,7 @@ export async function acquireOpenAIAuth(input: AcquireOpenAIAuthInput): Promise<
   let accountLabel: string | undefined
   let email: string | undefined
   let plan: string | undefined
-  const attempted = new Set<string>()
+  const attempted = new Set(input.context?.avoidIdentityKeys ?? [])
   let sawInvalidGrant = false
   let sawRefreshFailure = false
   let sawMissingRefresh = false

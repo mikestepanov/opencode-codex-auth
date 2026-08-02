@@ -26,6 +26,7 @@ export type AuthData = {
 
 export type FetchOrchestratorAuthContext = {
   sessionKey: string | null
+  avoidIdentityKeys?: readonly string[]
 }
 
 export type FetchOrchestratorState = {
@@ -41,6 +42,8 @@ export type FetchAttemptReasonCode =
   | "initial_attempt"
   | "retry_same_account_after_429"
   | "retry_switched_account_after_429"
+  | "retry_same_account_after_token_expired"
+  | "retry_switched_account_after_token_expired"
 
 export function createFetchOrchestratorState(): FetchOrchestratorState {
   return {
@@ -55,6 +58,7 @@ export function createFetchOrchestratorState(): FetchOrchestratorState {
 
 export type FetchOrchestratorDeps = {
   acquireAuth: (context?: FetchOrchestratorAuthContext) => Promise<AuthData>
+  recoverTokenExpired?: (auth: AuthData) => Promise<AuthData | undefined>
   setCooldown: (identityKey: string, cooldownUntil: number) => Promise<void>
   now?: () => number
   maxAttempts?: number

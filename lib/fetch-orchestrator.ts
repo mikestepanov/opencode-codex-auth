@@ -1,4 +1,5 @@
 import { computeBackoffMs, parseRetryAfterMs } from "./rate-limit.js"
+import { isTokenExpiredResponse } from "./api-auth-error.js"
 import { createSyntheticErrorResponse, formatWaitTime, isPluginFatalError } from "./fatal-errors.js"
 import {
   DEFAULT_ACCOUNT_SWITCH_TOAST_DEBOUNCE_MS,
@@ -252,20 +253,52 @@ export class FetchOrchestrator {
     let lastResponse: Response | undefined
     let previousAttemptStatus: number | null = null
     let previousAttemptAccountKey: string | null = null
+    let forcedAuth: Awaited<ReturnType<FetchOrchestratorDeps["acquireAuth"]>> | undefined
+    let tokenRecoveryAttempted = false
+    let tokenFailoverScheduled = false
+    let awaitingTokenFailover = false
+    const tokenExpiredIdentityKeys = new Set<string>()
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const now = nowFn()
-      const auth = await this.deps.acquireAuth({ sessionKey })
+      let auth: Awaited<ReturnType<FetchOrchestratorDeps["acquireAuth"]>>
+      try {
+        auth =
+          forcedAuth ??
+          (await this.deps.acquireAuth({
+            sessionKey,
+            ...(tokenExpiredIdentityKeys.size > 0 ? { avoidIdentityKeys: [...tokenExpiredIdentityKeys] } : {})
+          }))
+      } catch (error) {
+        if (
+          awaitingTokenFailover &&
+          lastResponse &&
+          isPluginFatalError(error) &&
+          (error.type === "no_enabled_accounts" || error.type === "all_accounts_cooling_down")
+        ) {
+          return lastResponse
+        }
+        throw error
+      }
+      forcedAuth = undefined
+      awaitingTokenFailover = false
       const accountLabel = formatAccountLabel(auth)
       const accountDisplayKey =
         auth.identityKey?.trim() || auth.accountId?.trim() || auth.email?.trim()?.toLowerCase() || accountLabel
       const retryAccountKey = resolveRetryAccountKey(auth)
+      const switchedAccount = Boolean(
+        previousAttemptAccountKey && retryAccountKey && previousAttemptAccountKey !== retryAccountKey
+      )
       const attemptReasonCode: FetchAttemptReasonCode =
-        attempt === 0 || previousAttemptStatus !== 429
-          ? "initial_attempt"
-          : previousAttemptAccountKey && retryAccountKey && previousAttemptAccountKey !== retryAccountKey
+        previousAttemptStatus === 429
+          ? switchedAccount
             ? "retry_switched_account_after_429"
             : "retry_same_account_after_429"
+          : previousAttemptStatus === 401
+            ? switchedAccount
+              ? "retry_switched_account_after_token_expired"
+              : "retry_same_account_after_token_expired"
+            : "initial_attempt"
 
       const allowResumeToast =
         sessionEvent !== "resume" ||
@@ -353,7 +386,36 @@ export class FetchOrchestrator {
           // Snapshot/debug hooks should never block request execution.
         }
       }
-      if (response.status !== 429) {
+      if (response.status !== 429 && !(await isTokenExpiredResponse(response))) {
+        return response
+      }
+
+      if (response.status === 401) {
+        lastResponse = response
+        previousAttemptStatus = response.status
+        previousAttemptAccountKey = retryAccountKey
+
+        if (!tokenRecoveryAttempted && this.deps.recoverTokenExpired) {
+          tokenRecoveryAttempted = true
+          if (attempt >= maxAttempts - 1) return response
+          try {
+            forcedAuth = await this.deps.recoverTokenExpired(auth)
+          } catch (error) {
+            if (isPluginFatalError(error)) throw error
+          }
+          if (!forcedAuth && auth.identityKey) {
+            tokenFailoverScheduled = true
+            awaitingTokenFailover = true
+            tokenExpiredIdentityKeys.add(auth.identityKey)
+          }
+          continue
+        }
+        if (!tokenFailoverScheduled && auth.identityKey && attempt < maxAttempts - 1) {
+          tokenFailoverScheduled = true
+          awaitingTokenFailover = true
+          tokenExpiredIdentityKeys.add(auth.identityKey)
+          continue
+        }
         return response
       }
 

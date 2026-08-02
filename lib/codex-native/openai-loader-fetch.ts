@@ -13,6 +13,7 @@ import type {
 import type { OpenAIAuthMode } from "../types.js"
 import type { QuotaThresholdTrackerState } from "../quota-threshold-alerts.js"
 import { acquireOpenAIAuth } from "./acquire-auth.js"
+import { recoverExpiredOpenAIAuth } from "./reactive-refresh.js"
 import { resolveRequestUserAgent } from "./client-identity.js"
 import { resolveCodexOriginator } from "./originator.js"
 import { buildProjectPromptCacheKey } from "../prompt-cache-key.js"
@@ -270,6 +271,21 @@ export function createOpenAIFetchHandler(input: CreateOpenAIFetchHandlerInput) {
         }
         return auth
       },
+      recoverTokenExpired: async (auth) => {
+        const recovered = await recoverExpiredOpenAIAuth({
+          authMode: input.authMode,
+          failedAuth: auth
+        })
+        if (recovered) {
+          selectedIdentityKey = recovered.identityKey
+          selectedAuthForQuota = {
+            access: recovered.access,
+            identityKey: recovered.identityKey
+          }
+          if (recovered.accountId) selectedAuthForQuota.accountId = recovered.accountId
+        }
+        return recovered
+      },
       setCooldown: input.setCooldown,
       quietMode: input.quietMode,
       state: orchestratorState,
@@ -300,7 +316,10 @@ export function createOpenAIFetchHandler(input: CreateOpenAIFetchHandlerInput) {
           sessionKey,
           ultra: ultraStateForRequest
         })
-        if (attemptReasonCode !== "initial_attempt") {
+        if (
+          attemptReasonCode === "retry_same_account_after_429" ||
+          attemptReasonCode === "retry_switched_account_after_429"
+        ) {
           await input.shareableDebug?.emitRetryAfter429({
             authMode: input.authMode,
             rotationStrategy: auth.selectionTrace?.strategy ?? input.configuredRotationStrategy,
@@ -541,7 +560,7 @@ export function createOpenAIFetchHandler(input: CreateOpenAIFetchHandlerInput) {
     persistRateLimitSnapshotFromResponse(response, selectedIdentityKey)
 
     const identityForQuota = selectedAuthForQuota?.identityKey
-    if (identityForQuota && selectedAuthForQuota?.access) {
+    if (identityForQuota && selectedAuthForQuota?.access && response.status !== 401) {
       pruneQuotaState(quotaRefreshAtByIdentity, quotaTrackerByIdentity, Date.now())
       scheduleQuotaRefresh({
         identityForQuota,

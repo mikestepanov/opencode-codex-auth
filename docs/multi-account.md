@@ -149,7 +149,8 @@ Failover triggers:
 
 - `429` + retry parsing -> cooldown + retry on another healthy account
 - refresh/auth failures:
-  - `invalid_grant` -> account disabled
+  - ordinary refresh `invalid_grant` -> account disabled
+  - reactive refresh after backend `token_expired` -> bounded wait for a peer token generation, then request-local failover without disabling the shared account
   - transient token failure -> cooldown
 
 Request hard-fails only when all enabled candidates are exhausted.
