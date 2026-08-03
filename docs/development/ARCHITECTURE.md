@@ -73,6 +73,8 @@ This plugin bridges OpenCode's OpenAI provider hooks to ChatGPT Codex backend en
   - tool handler logic for `codex-status`, `codex-switch-accounts`, `codex-toggle-account`, `codex-remove-account`
 - `lib/codex-status-tool.ts`, `lib/codex-status-storage.ts`, `lib/codex-status-ui.ts`
   - account status/usage tracking, persistence, and display formatting
+- `lib/live-quota-status.ts`
+  - live per-account quota probe for `status --json`; refreshes persisted snapshots (including cooling accounts) and clears a stale quota cooldown when a fresh probe shows every window still has capacity
 - `lib/legacy-orchestrator-cleanup.ts`
   - removal of prompt caches and plugin-managed agent files from the retired orchestrator WIP while preserving user-authored agents
 - `lib/quarantine.ts`

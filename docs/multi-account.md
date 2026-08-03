@@ -155,6 +155,15 @@ Failover triggers:
 
 Request hard-fails only when all enabled candidates are exhausted.
 
+Recovery:
+
+- a live quota probe (`opencode-codex-auth status --json`, consumed by fleet
+  monitors) re-samples every account, including cooling ones the request path
+  never re-probes, and clears a persisted quota cooldown as soon as a fresh probe
+  shows every window still has capacity
+- this lets a recovered account rejoin selection immediately instead of waiting
+  out a stale retry window; genuinely exhausted accounts keep their cooldown
+
 ## Interactive account manager
 
 Open with:

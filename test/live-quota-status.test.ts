@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
-import { collectLiveQuotaStatus } from "../lib/live-quota-status"
+import { collectLiveQuotaStatus, limitsIndicateAvailability } from "../lib/live-quota-status"
 import { ensureOpenAIOAuthDomain, loadAuthStorage, saveAuthStorage } from "../lib/storage"
 
 const IDENTITY = "acc_123|user@example.com|pro"
@@ -34,6 +34,7 @@ describe("live quota status", () => {
   it("recovers an exact token_expired response for a cooling account and retries once", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-live-status-"))
     const authPath = path.join(dir, "codex-accounts.json")
+    const snapshotsPath = path.join(dir, "codex-snapshots.json")
     await seedAccount(authPath)
     const requests: string[] = []
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -46,6 +47,7 @@ describe("live quota status", () => {
 
     const records = await collectLiveQuotaStatus({
       authPath,
+      snapshotsPath,
       fetchImpl: fetchImpl as typeof fetch,
       recover: async ({ failedAuth }) => {
         await saveAuthStorage(authPath, (auth) => {
@@ -106,6 +108,7 @@ describe("live quota status", () => {
 
     const records = await collectLiveQuotaStatus({
       authPath,
+      snapshotsPath: path.join(dir, "codex-snapshots.json"),
       fetchImpl: vi.fn(async (_input, init) => {
         const authorization = new Headers(init?.headers).get("authorization")
         if (authorization === "Bearer at_healthy") {
@@ -146,5 +149,97 @@ describe("live quota status", () => {
 
     expect(records).toEqual([expect.objectContaining({ account: "partial@example.com", status: "token_expired" })])
     expect(recover).not.toHaveBeenCalled()
+  })
+
+  it("clears a stale quota cooldown when a fresh probe still has capacity", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-live-status-"))
+    const authPath = path.join(dir, "codex-accounts.json")
+    const snapshotsPath = path.join(dir, "codex-snapshots.json")
+    const cooldownUntil = Date.now() + 86_400_000
+    await saveAuthStorage(authPath, () => ({
+      openai: {
+        type: "oauth",
+        accounts: [
+          {
+            identityKey: IDENTITY,
+            accountId: "acc_123",
+            email: "user@example.com",
+            plan: "pro",
+            authTypes: ["native"],
+            enabled: true,
+            access: "at_live",
+            refresh: "rt_live",
+            expires: Date.now() + 3_600_000,
+            cooldownUntil
+          }
+        ]
+      }
+    }))
+
+    const records = await collectLiveQuotaStatus({
+      authPath,
+      snapshotsPath,
+      fetchImpl: vi.fn(async () =>
+        Response.json({ rate_limit: { primary_window: { used_percent: 20, reset_at: 1_900_000_000 } } })
+      )
+    })
+
+    expect(records[0]).toEqual(expect.objectContaining({ account: "user@example.com", status: "ok" }))
+    expect(records[0]?.cooldownUntil).toBeUndefined()
+    const stored = await loadAuthStorage(authPath)
+    expect(ensureOpenAIOAuthDomain(stored, "native").accounts[0]?.cooldownUntil).toBeUndefined()
+    const persisted = JSON.parse(await fs.readFile(snapshotsPath, "utf8"))
+    expect(persisted[IDENTITY]?.limits?.[0]?.leftPct).toBe(80)
+  })
+
+  it("keeps the cooldown when a fresh probe is still exhausted", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-live-status-"))
+    const authPath = path.join(dir, "codex-accounts.json")
+    const snapshotsPath = path.join(dir, "codex-snapshots.json")
+    const cooldownUntil = Date.now() + 86_400_000
+    await saveAuthStorage(authPath, () => ({
+      openai: {
+        type: "oauth",
+        accounts: [
+          {
+            identityKey: IDENTITY,
+            accountId: "acc_123",
+            email: "user@example.com",
+            plan: "pro",
+            authTypes: ["native"],
+            enabled: true,
+            access: "at_live",
+            refresh: "rt_live",
+            expires: Date.now() + 3_600_000,
+            cooldownUntil
+          }
+        ]
+      }
+    }))
+
+    const records = await collectLiveQuotaStatus({
+      authPath,
+      snapshotsPath,
+      fetchImpl: vi.fn(async () =>
+        Response.json({ rate_limit: { primary_window: { used_percent: 100, reset_at: 1_900_000_000 } } })
+      )
+    })
+
+    expect(records[0]?.status).toBe("ok")
+    expect(records[0]?.cooldownUntil).toBe(cooldownUntil)
+    const stored = await loadAuthStorage(authPath)
+    expect(ensureOpenAIOAuthDomain(stored, "native").accounts[0]?.cooldownUntil).toBe(cooldownUntil)
+  })
+
+  it("treats availability as every window retaining capacity", () => {
+    expect(limitsIndicateAvailability([])).toBe(false)
+    expect(limitsIndicateAvailability([{ name: "requests", leftPct: 1 }])).toBe(true)
+    expect(limitsIndicateAvailability([{ name: "requests", leftPct: 0 }])).toBe(false)
+    expect(
+      limitsIndicateAvailability([
+        { name: "5h", leftPct: 50 },
+        { name: "weekly", leftPct: 0 }
+      ])
+    ).toBe(false)
   })
 })

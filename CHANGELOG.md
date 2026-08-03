@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0-shadow.3
+
+- Autoheal recovered accounts: the live quota probe (`status --json`) now refreshes persisted snapshots for every probed account, including cooling ones the request path never re-samples, and clears a stale quota cooldown as soon as a fresh probe shows every window still has capacity. Recovered accounts rejoin rotation immediately instead of waiting out an obsolete retry window; genuinely exhausted accounts keep their cooldown.
+
 ## 1.10.0-shadow.1
 
 - Add host-local, exact-worktree account preference and new-session drain routing.

@@ -2,11 +2,22 @@ import crypto from "node:crypto"
 
 import { isTokenExpiredResponse } from "./api-auth-error.js"
 import { fetchQuotaSnapshotResultFromBackend } from "./codex-quota-fetch.js"
+import { saveSnapshots } from "./codex-status-storage.js"
 import type { AuthData } from "./fetch-orchestrator.js"
 import { buildLegacyIdentityFingerprint, ensureIdentityKey } from "./identity.js"
-import { getOpenAIOAuthDomain, loadAuthStorage } from "./storage.js"
+import { defaultSnapshotsPath } from "./paths.js"
+import { getOpenAIOAuthDomain, loadAuthStorage, saveAuthStorage } from "./storage.js"
 import type { AccountRecord, CodexLimit, OpenAIAuthMode } from "./types.js"
 import { recoverExpiredOpenAIAuth } from "./codex-native/reactive-refresh.js"
+
+/**
+ * A freshly fetched quota snapshot proves the account can serve traffic only
+ * when every reported window still has capacity. An empty list means the probe
+ * returned no usable window data, which is not evidence of recovery.
+ */
+export function limitsIndicateAvailability(limits: CodexLimit[]): boolean {
+  return limits.length > 0 && limits.every((limit) => limit.leftPct > 0)
+}
 
 export type LiveQuotaStatusRecord = {
   account: string
@@ -40,12 +51,16 @@ export async function collectLiveQuotaStatus(
   input: {
     authMode?: OpenAIAuthMode
     authPath?: string
+    snapshotsPath?: string
+    now?: number
     fetchImpl?: typeof fetch
     timeoutMs?: number
     recover?: typeof recoverExpiredOpenAIAuth
   } = {}
 ): Promise<LiveQuotaStatusRecord[]> {
   const authMode = input.authMode ?? "native"
+  const now = input.now ?? Date.now()
+  const snapshotsPath = input.snapshotsPath ?? defaultSnapshotsPath()
   const auth = await loadAuthStorage(input.authPath, { lockReads: false })
   const domain = getOpenAIOAuthDomain(auth, authMode)
   if (!domain) return []
@@ -98,12 +113,45 @@ export async function collectLiveQuotaStatus(
       }
 
       if (result.snapshot) {
+        const snapshot = result.snapshot
+        const identityKey = account.identityKey?.trim()
+        // Keep the persisted quota snapshot current for every probed account,
+        // including cooling ones the request path never re-samples. A fresh
+        // snapshot stops account selection from re-benching a recovered account
+        // from stale exhausted data on its next acquire.
+        if (identityKey) {
+          await saveSnapshots(snapshotsPath, (current) => ({
+            ...current,
+            [identityKey]: snapshot
+          }))
+        }
+        // Autoheal: a fresh probe that still reports spare capacity is
+        // authoritative proof the account recovered, so drop any stale persisted
+        // quota cooldown instead of benching it until an obsolete retry window.
+        const tokenRefreshed = selected.access !== account.access
+        let cooldownCleared = false
+        if (
+          identityKey &&
+          typeof account.cooldownUntil === "number" &&
+          account.cooldownUntil > now &&
+          limitsIndicateAvailability(snapshot.limits)
+        ) {
+          await saveAuthStorage(input.authPath, (stored) => {
+            const target = getOpenAIOAuthDomain(stored, authMode)?.accounts.find(
+              (candidate) => candidate.identityKey === identityKey
+            )
+            if (target && target.enabled !== false && typeof target.cooldownUntil === "number") {
+              delete target.cooldownUntil
+            }
+          })
+          cooldownCleared = true
+        }
         records.push({
           ...base,
           plan: selected.plan?.trim() || base.plan,
-          ...(selected.access !== account.access ? { cooldownUntil: undefined } : {}),
+          ...(tokenRefreshed || cooldownCleared ? { cooldownUntil: undefined } : {}),
           status: "ok",
-          limits: result.snapshot.limits
+          limits: snapshot.limits
         })
       } else if (result.response && (await isTokenExpiredResponse(result.response))) {
         records.push({ ...base, status: "token_expired", httpStatus: result.response.status, limits: [] })
